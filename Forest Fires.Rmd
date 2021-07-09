@@ -1,0 +1,83 @@
+---
+title: "Forest Fires"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+#1. Data Loading
+getwd()
+#setwd("C:/Users/M93p-7/Downloads")
+setwd("/Users/fawwazrizvi/Downloads")
+ff<-read.csv("forestfires.csv", header = T)
+```
+
+```{r}
+#2. Exploratory Data Analysis - EDA
+str(ff)
+#The attributes X, Y, month and day will be removed from the dataset
+ff<-ff[-c(1:4)]
+str(ff)
+```
+
+```{r}
+#2. EDA Continued...
+boxplot(ff)
+#as we can see the classifier attribute area has a number of outliers that we need to remove
+summary(ff$area)
+#As we can see a large portion of the dataset consists of 0 values, which attribute to No Burn Areas
+```
+```{r}
+#As per above, clearly we can see a bunch of outliers exist for the area attribute, so we will remove these.
+#We will use an upper bound of 0.98 for the upper quartlile as very few values exist above 100 in the area attribute.
+#As we saw using summary() on the area attribute that zero values exist in the dataset up to the 1st quartile, and since the burned area can not be lower than 0, we do not have any lower bound outliers.
+#We will use the quantile function to identify our outliers and then remove them:
+Q <- quantile(ff$area, probs=c(.25, .98), na.rm = FALSE)
+iqr<-IQR(ff$area)
+up <-  Q[2]+1.5*iqr # Upper Range
+low<- Q[1]-1.5*iqr # Lower Range
+ff<- subset(ff, ff$area > (Q[1] - 1.5*iqr) & ff$area < (Q[2]+1.5*iqr))
+
+#Now we can replot our boxplot of the dataset and see that the upper bound outliers are now removed from the area attribute
+boxplot(ff)
+
+
+
+
+
+#now we have a better measure for burned area with outliers removed
+```
+
+```{r}
+#Now that the outliers have been removed, we will create a normalization function and apply it to our dataset
+#the data set will now be normalized
+normalize <- function(x) {
+  return ((x-min(x)) / (max(x)-min(x)))
+}
+norm_ff<-normalize(ff)
+```
+
+```{r}
+#Now our dataset is normalized and area attribute free of large outliers.
+#All values are between 0 and 1.
+summary(norm_ff)
+boxplot(norm_ff)
+```
+
+
+```{r}
+#We can now apply our labels to our classifier attribute 'Area'.
+#Since a large portion of our dataset contains 0 burned area quantity, we will label it as 'Zero Burn'. Burned area between are 1st quartile of 0 and our 3rd quartile, can be considered 'Low/Med Burn', and anything from our 3rd quartile to our Max value is considered 'High Burn'
+norm_ff$area <- cut(norm_ff$area,
+                          breaks = c(-1,0,0.00734,0.13),
+                          labels = c("Zero Burn","Low/Med Burn","High Burn"), right = TRUE)
+summary(norm_ff$area)
+#As we can see below, we have 247 combination of attributes that result in Zero Burn area, 134 result in Low/Med Burn areas and 127 that result in High Burn area.
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
