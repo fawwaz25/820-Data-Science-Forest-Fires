@@ -1,0 +1,214 @@
+---
+title: "Forest Fires"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+```{r}
+#1. Data Loading
+#getwd()
+setwd("C:/Users/M93p-7/Downloads")
+#setwd("/Users/fawwazrizvi/Downloads")
+#setwd("/home)
+ff<-read.csv("forestfires.csv", header = T)
+```
+
+```{r}
+#2. Exploratory Data Analysis - EDA
+str(ff)
+```
+
+
+```{r}
+#The attributes X, Y, month and day will be removed from the dataset
+ff<-ff[-c(1:4)]
+str(ff)
+```
+
+```{r}
+#2. EDA Continued...
+boxplot(ff)
+
+#as we can see the classifier attribute area has a number of outliers that we need to remove
+summary(ff$area)
+#As we can see a large portion of the dataset consists of 0 values, which attribute to No Burn Areas
+#We can also suspect some outliers possibly, as there is a significant difference between the 3rd quartile and Max value in this attribute.
+```
+
+
+```{r}
+#As per above, clearly we can see a bunch of outliers exist for the area attribute, so we will remove these.
+#We will use an upper bound of 0.98 for the upper quartlile as very few values exist above 100 in the area attribute.
+#As we saw using summary() on the area attribute that zero values exist in the dataset up to the 1st quartile, and since the burned area can not be lower than 0, we do not have any lower bound outliers.
+#We will use the quantile function to identify our outliers and then remove them:
+set.seed(123)
+Q <- quantile(ff$area, probs=c(.25, .98), na.rm = FALSE)
+iqr<-IQR(ff$area)
+up <-  Q[2]+1.5*iqr # Upper Range
+low<- Q[1]-1.5*iqr # Lower Range
+ff<- subset(ff, ff$area > (Q[1] - 1.5*iqr) & ff$area < (Q[2]+1.5*iqr))
+
+#Now we can replot our boxplot of the dataset and see that the upper bound outliers are now removed from the area attribute
+boxplot(ff)
+
+
+
+
+
+#now we have a better measure for burned area with outliers removed
+```
+
+```{r}
+#Now that the outliers have been removed, we will create a normalization function and apply it to our dataset
+#the data set will now be normalized
+normalize <- function(x) {
+  return ((x-min(x)) / (max(x)-min(x)))
+}
+set.seed(123)
+norm_ff<-normalize(ff)
+```
+
+```{r}
+#3.Data Pre-processing 
+#Now our dataset is normalized and area attribute free of large outliers.
+#All values are between 0 and 1.
+summary(norm_ff)
+boxplot(norm_ff)
+```
+
+
+```{r}
+#3. Data Pre-processing continued...
+#We can now apply our labels to our classifier attribute 'Area'.
+#Since a large portion of our dataset contains 0 burned area quantity, we will label it as 'Zero Burn'. Burned area between our 1st quartile of 0 and our 3rd quartile, can be considered 'Low/Med Burn', and anything from our 3rd quartile to our Max value is considered 'High Burn'
+
+norm_ff$area <- cut(norm_ff$area,
+                          breaks = c(-1,0,0.00734,0.13),
+                          labels = c("Zero Burn","Low/Med Burn","High Burn"), right = TRUE)
+summary(norm_ff$area)
+#As we can see below, we have 247 combination of attributes that result in Zero Burn area, 134 result in Low/Med Burn areas and 127 that result in High Burn area.
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+```{r}
+#4 Predictive Modeling
+#We can now split our dataset in train and test sets
+index<-sample(1:nrow(norm_ff), 0.65*nrow(norm_ff))
+ff_train<- norm_ff[index,]
+ff_test<-norm_ff[-index,]
+ff_train_labels<-ff_train[,9]
+ff_test_labels<-ff_test[,9]
+```
+
+```{r}
+#4 Predictive Modeling Continued
+#KNN
+#We will use the KNN algorithm to predict our forest fire burned area.
+#The class package containing the kNN algorithm will be used
+library("class")
+
+set.seed(123)
+ff_test_pred<-knn(train = ff_train[,1:8], test=ff_test[,1:8], cl=ff_train[,9], k=9)
+```
+
+```{r}
+#Now we will evaluate our model's performance
+#table(actual=ff_test_labels, Predicted=ff_test_pred)
+set.seed(123)
+
+library("caret")
+knncm<-confusionMatrix(ff_test_pred,ff_test$area,mode="prec_recall")
+knncm
+```
+```{r}
+#4 Predictive Modeling Continued
+#DECISION TREE
+#Now we will compare our predictions from the kNN algorithm vs decision/classification tree
+library("rpart")
+set.seed(123)
+ff.rpart<-rpart(area~.,data=ff_train,method = "class", xval = 4)
+print(ff.rpart,digits = 3)
+```
+
+
+```{r}
+#4 Predictive Modeling Continued
+#DECISION TREE
+#Now we will run our prediction using the decision/classification tree
+set.seed(123)
+ff_dtpred<-predict(ff.rpart,ff_test,type="class")
+#install.packages("caret")
+library("caret")
+#install.packages("e1071")
+dtcm<-confusionMatrix(ff_dtpred,ff_test$area,mode="prec_recall")
+dtcm
+```
+```{r}
+#4 Predictive Modeling Continued
+#RANDOM FOREST
+#Now we will apply the Random Forest algorithm
+#install.packages("randomForest")
+library("randomForest")
+set.seed(123)
+ff.rf<-randomForest(area~.,data=ff_train)
+ff_rfpred<-predict(ff.rf,ff_test,type="class")
+rfcm<-confusionMatrix(ff_rfpred,ff_test$area,mode="prec_recall")
+rfcm
+```
+```{r}
+#4 Predictive Modeling Continued
+#NAIVE BAYES
+#Now we will run Naive Bayes on our dataset
+library("e1071")
+set.seed(123)
+ff.nb <- naiveBayes(area~.,data=ff_train)
+ff.nb
+
+#Looking at our Naive Bayes model, it tells us that based on conditional probablity of one event occuring given another event.
+#As we can see DC (Drought Code) has significantly higher probabilities for all categories of the burned area, as compared to the other measures.
+#We can also see that conditional probabilities are highest for Low/Med Burn Areas, for each given FWI (Fire Weather Index) and climate measurements.
+```
+
+
+```{r}
+#We will now make the prediction using our Naive Bayes algorithm
+set.seed(123)
+ff_nbpred<-predict(ff.nb,ff_test,type="class")
+nbcm<-confusionMatrix(ff_nbpred,ff_test$area,mode="prec_recall")
+nbcm
+```
+
+
+```{r}
+#4 Predictive Modeling Continued
+#GRADIENT BOOSTING
+#For our final predictive modeling algorithm, we will apply Gradient Boosting (GBM), to our dataset.
+#install.packages("gbm")
+library("gbm")
+#ff.gbm<-gbm(area~.,data=ff_train,distribution="multinomial",cv.folds=10,shrinkage=0.01,n.trees=10)
+set.seed(123)
+gbmtc<-trainControl("repeatedcv",number=10)
+ff.gbm<-train(area~.,ff_train,method="gbm",trControl=gbmtc)
+```
+
+
+```{r}
+#Now we will make our prediction using GBM
+set.seed(123)
+ff_gbmpred<-predict(ff.gbm,ff_test)
+gbmcm<-confusionMatrix(ff_gbmpred,ff_test$area,mode="prec_recall")
+gbmcm
+```
+
+```{r}
+#Performance Evaluation is conducted separately and presented in the Project Report.
+
+```
+
+
+
